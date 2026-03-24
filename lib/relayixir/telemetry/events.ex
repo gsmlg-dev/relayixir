@@ -103,10 +103,12 @@ defmodule Relayixir.Telemetry.Events do
     Logger.info("WebSocket session started", session_id: metadata[:session_id])
   end
 
-  def handle_event([:relayixir, :websocket, :session, :stop], _measurements, metadata, _config) do
+  def handle_event([:relayixir, :websocket, :session, :stop], measurements, metadata, _config) do
     Logger.info("WebSocket session stopped",
       session_id: metadata[:session_id],
-      close_code: metadata[:close_code]
+      close_code: metadata[:close_code],
+      close_reason: inspect(metadata[:close_reason]),
+      duration_ms: measurements[:duration]
     )
   end
 

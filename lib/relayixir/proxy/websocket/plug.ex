@@ -89,20 +89,21 @@ defmodule Relayixir.Proxy.WebSocket.Plug do
 
   @impl WebSock
   def terminate(reason, state) do
-    case reason do
-      {:remote, code, reason_text} ->
-        Bridge.downstream_closed(state.bridge_pid, code, reason_text)
+    if is_map_key(state, :bridge_pid) and is_pid(state.bridge_pid) and
+         Process.alive?(state.bridge_pid) do
+      case reason do
+        {:remote, code, reason_text} ->
+          Bridge.downstream_closed(state.bridge_pid, code, reason_text)
 
-      :normal ->
-        Bridge.downstream_closed(state.bridge_pid, 1000, "")
+        :normal ->
+          Bridge.downstream_closed(state.bridge_pid, 1000, "")
 
-      _ ->
-        Bridge.downstream_closed(state.bridge_pid, 1001, "Going Away")
+        _ ->
+          Bridge.downstream_closed(state.bridge_pid, 1001, "Going Away")
+      end
     end
 
     :ok
-  rescue
-    _ -> :ok
   end
 
   ## Private

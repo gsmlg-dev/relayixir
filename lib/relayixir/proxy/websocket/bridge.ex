@@ -77,7 +77,6 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
   def init({downstream_pid, upstream, ws_headers, session_id}) do
     now = System.monotonic_time(:millisecond)
     downstream_monitor = Process.monitor(downstream_pid)
-    Process.link(downstream_pid)
 
     :telemetry.execute(
       [:relayixir, :websocket, :session, :start],
@@ -121,6 +120,7 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
           "WebSocket bridge #{state.session_id}: upstream connect failed: #{inspect(reason)}"
         )
 
+        emit_exception(state, {:upstream_connect_failed, reason})
         send_to_downstream(state, Close.upstream_connect_failed_frame())
         stop_with_reason(state, {:upstream_connect_failed, reason})
     end
@@ -157,12 +157,15 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
         {:noreply, %{new_state | last_activity_at: System.monotonic_time(:millisecond)}}
 
       {:error, state} ->
+        emit_exception(state, :upstream_send_failed)
         send_to_downstream(state, Close.internal_error_frame())
         stop_with_reason(state, :upstream_send_failed)
     end
   end
 
-  def handle_cast({:downstream_frame, _frame}, state) do
+  def handle_cast({:downstream_frame, _frame}, %{status: status} = state)
+      when status != :open do
+    Logger.debug("WebSocket bridge #{state.session_id}: dropping frame in #{status} state")
     {:noreply, state}
   end
 
@@ -220,6 +223,7 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
           "WebSocket bridge #{state.session_id}: upstream decode error: #{inspect(reason)}"
         )
 
+        emit_exception(state, {:upstream_error, reason})
         send_to_downstream(state, Close.internal_error_frame())
         stop_with_reason(state, {:upstream_error, reason})
     end
@@ -280,6 +284,14 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
   end
 
   ## Private Helpers
+
+  defp emit_exception(state, reason) do
+    :telemetry.execute(
+      [:relayixir, :websocket, :exception],
+      %{system_time: System.system_time()},
+      %{session_id: state.session_id, reason: reason}
+    )
+  end
 
   defp handle_upstream_frames([], state), do: {:noreply, state}
 

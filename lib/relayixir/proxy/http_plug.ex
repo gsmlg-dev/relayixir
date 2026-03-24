@@ -134,7 +134,8 @@ defmodule Relayixir.Proxy.HttpPlug do
   end
 
   defp send_downstream(conn, parts) do
-    {status, headers, data_chunks} = extract_response_parts(parts)
+    {status, headers, data_chunks_reversed} = extract_response_parts(parts)
+    data_chunks = Enum.reverse(data_chunks_reversed)
 
     response_headers = Headers.prepare_response_headers(headers)
 
@@ -166,7 +167,7 @@ defmodule Relayixir.Proxy.HttpPlug do
     Enum.reduce(parts, {nil, [], []}, fn
       {:status, status}, {_s, h, d} -> {status, h, d}
       {:headers, headers}, {s, _h, d} -> {s, headers, d}
-      {:data, chunk}, {s, h, d} -> {s, h, d ++ [chunk]}
+      {:data, chunk}, {s, h, d} -> {s, h, [chunk | d]}
       :done, acc -> acc
       {:error, _reason}, acc -> acc
     end)
