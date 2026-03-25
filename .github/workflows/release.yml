@@ -58,11 +58,16 @@ jobs:
       - name: Build release
         run: mix release
 
+      - name: Package release tarball
+        run: |
+          cd _build/prod/rel
+          tar czf relayixir-${{ inputs.version }}.tar.gz relayixir/
+
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
           name: relayixir-${{ inputs.version }}
-          path: _build/prod/rel/relayixir/
+          path: _build/prod/rel/relayixir-${{ inputs.version }}.tar.gz
 
       - name: Commit version bump
         run: |
@@ -82,4 +87,4 @@ jobs:
           gh release create "v${{ inputs.version }}" \
             --title "v${{ inputs.version }}" \
             --generate-notes \
-            _build/prod/rel/relayixir/*.tar.gz || true
+            _build/prod/rel/relayixir-${{ inputs.version }}.tar.gz
