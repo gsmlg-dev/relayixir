@@ -158,12 +158,12 @@ defmodule Relayixir.Proxy.HttpClient do
               recv_body_collect(conn, deadline, acc, acc_size, max_size)
 
             {:ok, conn, responses} ->
-              case collect_body_batch(responses, acc) do
-                {:done, chunks} ->
+              case collect_body_batch_sized(responses, acc, 0) do
+                {:done, chunks, _batch_size} ->
                   {:ok, conn, Enum.reverse(chunks)}
 
-                {:continue, new_acc} ->
-                  new_size = new_acc |> Enum.map(&byte_size/1) |> Enum.sum()
+                {:continue, new_acc, batch_size} ->
+                  new_size = acc_size + batch_size
 
                   if max_size != nil && new_size > max_size do
                     Mint.HTTP.close(conn)
@@ -185,10 +185,16 @@ defmodule Relayixir.Proxy.HttpClient do
     end
   end
 
-  defp collect_body_batch([], acc), do: {:continue, acc}
-  defp collect_body_batch([{:data, _ref, d} | rest], acc), do: collect_body_batch(rest, [d | acc])
-  defp collect_body_batch([{:done, _ref} | _], acc), do: {:done, acc}
-  defp collect_body_batch([_ | rest], acc), do: collect_body_batch(rest, acc)
+  defp collect_body_batch_sized([], acc, size), do: {:continue, acc, size}
+
+  defp collect_body_batch_sized([{:data, _ref, d} | rest], acc, size) do
+    collect_body_batch_sized(rest, [d | acc], size + byte_size(d))
+  end
+
+  defp collect_body_batch_sized([{:done, _ref} | _], acc, size), do: {:done, acc, size}
+
+  defp collect_body_batch_sized([_ | rest], acc, size),
+    do: collect_body_batch_sized(rest, acc, size)
 
   defp recv_headers_loop(conn, deadline, fbd, status, headers, pending) do
     remaining = deadline - System.monotonic_time(:millisecond)

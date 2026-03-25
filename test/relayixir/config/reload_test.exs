@@ -53,6 +53,20 @@ defmodule Relayixir.Config.ReloadTest do
       assert HookConfig.get_on_ws_frame() == ws_hook
     end
 
+    test "partial hook update does not clear other hooks" do
+      hook = fn _req, _resp -> :ok end
+      ws_hook = fn _sid, _dir, _frame -> :ok end
+
+      Relayixir.load(hooks: [on_request_complete: hook, on_ws_frame: ws_hook])
+
+      # Update only the ws hook — should not clear the http hook
+      new_ws_hook = fn _sid, _dir, _frame -> :updated end
+      Relayixir.load(hooks: [on_ws_frame: new_ws_hook])
+
+      assert HookConfig.get_on_request_complete() == hook
+      assert HookConfig.get_on_ws_frame() == new_ws_hook
+    end
+
     test "load with empty list is a no-op" do
       original_routes = RouteConfig.get_routes()
       assert :ok = Relayixir.load([])
