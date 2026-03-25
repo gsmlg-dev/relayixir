@@ -57,28 +57,45 @@ defmodule Relayixir.Proxy.HttpPlug do
   end
 
   defp do_proxy(conn, upstream) do
-    with {:ok, body, conn} <- read_body(conn),
-         request_headers <- Headers.prepare_request_headers(conn, upstream),
-         path <- build_upstream_path(conn, upstream),
-         {:ok, mint_conn} <- connect_upstream(upstream),
-         method <- String.upcase(conn.method),
-         {:ok, mint_conn, _ref} <-
-           HttpClient.send_request(mint_conn, method, path, request_headers, body) do
+    # Strip content-length so Mint uses chunked transfer encoding for streaming.
+    request_headers =
+      conn
+      |> Headers.prepare_request_headers(upstream)
+      |> Enum.reject(fn {name, _} -> String.downcase(name) == "content-length" end)
+
+    path = build_upstream_path(conn, upstream)
+    method = String.upcase(conn.method)
+
+    with {:ok, mint_conn} <- connect_upstream(upstream),
+         {:ok, mint_conn, request_ref} <-
+           HttpClient.send_request(mint_conn, method, path, request_headers, :stream),
+         {:ok, mint_conn} <- stream_request_body(conn, mint_conn, request_ref) do
       stream_response(conn, mint_conn, upstream)
     else
       {:error, reason} ->
         {:error, map_error(reason), conn}
 
-      {:error, reason, conn} ->
-        {:error, reason, conn}
+      {:error, _mint_conn, reason} ->
+        {:error, map_error(reason), conn}
     end
   end
 
-  defp read_body(conn) do
-    case Plug.Conn.read_body(conn) do
-      {:ok, body, conn} -> {:ok, body, conn}
-      {:more, _partial, conn} -> {:error, :request_body_too_large, conn}
-      {:error, reason} -> {:error, reason}
+  # Reads the client request body in chunks and forwards each chunk to the upstream
+  # via Mint's streaming API. Sends :eof after the last chunk.
+  defp stream_request_body(conn, mint_conn, request_ref) do
+    case Plug.Conn.read_body(conn, length: 65_536, read_length: 65_536) do
+      {:ok, chunk, _conn} ->
+        with {:ok, mint_conn} <- HttpClient.stream_body_chunk(mint_conn, request_ref, chunk) do
+          HttpClient.stream_body_chunk(mint_conn, request_ref, :eof)
+        end
+
+      {:more, chunk, conn} ->
+        with {:ok, mint_conn} <- HttpClient.stream_body_chunk(mint_conn, request_ref, chunk) do
+          stream_request_body(conn, mint_conn, request_ref)
+        end
+
+      {:error, reason} ->
+        {:error, nil, reason}
     end
   end
 

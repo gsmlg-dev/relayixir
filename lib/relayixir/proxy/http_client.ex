@@ -24,7 +24,7 @@ defmodule Relayixir.Proxy.HttpClient do
           String.t(),
           String.t(),
           [{String.t(), String.t()}],
-          binary() | nil
+          binary() | nil | :stream
         ) ::
           {:ok, Mint.HTTP.t(), Mint.Types.request_ref()} | {:error, Mint.HTTP.t(), term()}
   def send_request(conn, method, path, headers, body \\ nil) do
@@ -50,6 +50,18 @@ defmodule Relayixir.Proxy.HttpClient do
         else: nil
 
     recv_loop(conn, deadline, first_byte_deadline, [])
+  end
+
+  @doc """
+  Streams one chunk (or `:eof`) of a request body on an open streaming request.
+
+  Call after `send_request/5` with `body: :stream`.
+  Returns `{:ok, conn}` or `{:error, conn, reason}`.
+  """
+  @spec stream_body_chunk(Mint.HTTP.t(), Mint.Types.request_ref(), binary() | :eof) ::
+          {:ok, Mint.HTTP.t()} | {:error, Mint.HTTP.t(), term()}
+  def stream_body_chunk(conn, request_ref, chunk) do
+    Mint.HTTP.stream_request_body(conn, request_ref, chunk)
   end
 
   @doc """

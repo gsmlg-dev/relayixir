@@ -117,6 +117,19 @@ defmodule Relayixir.Proxy.HttpPlugTest do
     assert conn.resp_body == "Bad Gateway"
   end
 
+  test "streams large request body without buffering" do
+    # 200KB body — exceeds the 65_536 read_length chunk size, so multiple chunks are streamed
+    large_body = String.duplicate("x", 200_000)
+
+    conn =
+      Plug.Test.conn(:post, "http://localhost/large-echo", large_body)
+      |> Plug.Conn.put_req_header("content-type", "text/plain")
+      |> Relayixir.Router.call(Relayixir.Router.init([]))
+
+    assert conn.status == 200
+    assert byte_size(conn.resp_body) == 200_000
+  end
+
   test "proxies chunked response" do
     conn =
       Plug.Test.conn(:get, "http://localhost/chunked")
