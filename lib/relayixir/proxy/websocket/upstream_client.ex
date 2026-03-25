@@ -147,32 +147,40 @@ defmodule Relayixir.Proxy.WebSocket.UpstreamClient do
 
   defp await_upgrade_response(conn, ref) do
     receive do
-      message ->
-        case Mint.WebSocket.stream(conn, message) do
-          {:ok, conn, responses} ->
-            case extract_upgrade_info(responses) do
-              {:ok, 101, resp_headers} ->
-                case Mint.WebSocket.new(conn, ref, 101, resp_headers) do
-                  {:ok, conn, websocket} -> {:ok, conn, websocket}
-                  {:error, conn, reason} -> {:error, conn, reason}
-                end
-
-              {:ok, status, _headers} ->
-                {:error, conn, {:unexpected_status, status}}
-
-              :no_status ->
-                {:error, conn, :no_upgrade_response}
-            end
-
-          {:error, conn, reason, _} ->
-            {:error, conn, reason}
-
-          :unknown ->
-            await_upgrade_response(conn, ref)
-        end
+      {:tcp, _, _} = message -> process_upgrade_message(conn, ref, message)
+      {:tcp_closed, _} = message -> process_upgrade_message(conn, ref, message)
+      {:tcp_error, _, _} = message -> process_upgrade_message(conn, ref, message)
+      {:ssl, _, _} = message -> process_upgrade_message(conn, ref, message)
+      {:ssl_closed, _} = message -> process_upgrade_message(conn, ref, message)
+      {:ssl_error, _, _} = message -> process_upgrade_message(conn, ref, message)
     after
       10_000 ->
         {:error, conn, :handshake_timeout}
+    end
+  end
+
+  defp process_upgrade_message(conn, ref, message) do
+    case Mint.WebSocket.stream(conn, message) do
+      {:ok, conn, responses} ->
+        case extract_upgrade_info(responses) do
+          {:ok, 101, resp_headers} ->
+            case Mint.WebSocket.new(conn, ref, 101, resp_headers) do
+              {:ok, conn, websocket} -> {:ok, conn, websocket}
+              {:error, conn, reason} -> {:error, conn, reason}
+            end
+
+          {:ok, status, _headers} ->
+            {:error, conn, {:unexpected_status, status}}
+
+          :no_status ->
+            {:error, conn, :no_upgrade_response}
+        end
+
+      {:error, conn, reason, _} ->
+        {:error, conn, reason}
+
+      :unknown ->
+        await_upgrade_response(conn, ref)
     end
   end
 
