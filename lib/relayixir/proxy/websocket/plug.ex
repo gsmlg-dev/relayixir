@@ -36,6 +36,8 @@ defmodule Relayixir.Proxy.WebSocket.Plug do
 
   @impl WebSock
   def init(%{upstream: upstream, ws_headers: ws_headers}) do
+    Process.flag(:trap_exit, true)
+
     case Bridge.start(self(), upstream, ws_headers) do
       {:ok, bridge_pid} ->
         Process.link(bridge_pid)

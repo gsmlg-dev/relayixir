@@ -187,6 +187,7 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
   end
 
   def handle_cast({:downstream_closed, _code, _reason}, state) do
+    if state.close_timer, do: Process.cancel_timer(state.close_timer)
     stop_with_reason(state, :downstream_closed)
   end
 
@@ -248,7 +249,11 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
     end
   end
 
-  def handle_info(_message, state) do
+  def handle_info(message, state) do
+    Logger.debug(
+      "WebSocket bridge #{state.session_id}: unexpected message in #{state.status}: #{inspect(message)}"
+    )
+
     {:noreply, state}
   end
 
