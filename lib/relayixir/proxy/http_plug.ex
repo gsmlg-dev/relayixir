@@ -141,91 +141,140 @@ defmodule Relayixir.Proxy.HttpPlug do
   end
 
   defp stream_response(conn, mint_conn, upstream) do
-    case HttpClient.recv_response(
-           mint_conn,
-           upstream.request_timeout,
-           upstream.first_byte_timeout
-         ) do
-      {:ok, mint_conn, parts} ->
-        HttpClient.close(mint_conn)
-        send_downstream(conn, parts)
+    timeout = upstream.request_timeout
+    fbt = upstream.first_byte_timeout
+
+    case HttpClient.recv_until_headers(mint_conn, timeout, fbt) do
+      {:ok, mint_conn, status, resp_headers, chunks, completeness} ->
+        response_headers = Headers.prepare_response_headers(resp_headers)
+
+        forward_response(
+          conn,
+          mint_conn,
+          upstream,
+          status,
+          response_headers,
+          chunks,
+          completeness
+        )
 
       {:error, reason} ->
         {:error, map_error(reason), conn}
     end
   end
 
-  defp send_downstream(conn, parts) do
-    {status, headers, data_chunks_reversed} = extract_response_parts(parts)
-    data_chunks = Enum.reverse(data_chunks_reversed)
+  defp forward_response(conn, mint_conn, _upstream, status, response_headers, _chunks, _complete)
+       when status in [204, 304] do
+    HttpClient.close(mint_conn)
 
-    response_headers = Headers.prepare_response_headers(headers)
+    conn =
+      conn
+      |> put_response_headers(response_headers)
+      |> Plug.Conn.send_resp(status, "")
 
-    cond do
-      status in [204, 304] ->
-        conn =
-          conn
-          |> put_response_headers(response_headers)
-          |> Plug.Conn.send_resp(status, "")
+    {:ok, conn}
+  end
 
-        {:ok, conn}
+  defp forward_response(
+         conn,
+         mint_conn,
+         upstream,
+         status,
+         response_headers,
+         chunks,
+         completeness
+       ) do
+    if has_content_length?(response_headers) do
+      # Collect body — bounded by the declared content-length.
+      case collect_body(mint_conn, upstream.request_timeout, chunks, completeness) do
+        {:ok, mint_conn, body_chunks} ->
+          HttpClient.close(mint_conn)
+          body = IO.iodata_to_binary(body_chunks)
 
-      has_content_length?(response_headers) ->
-        body = IO.iodata_to_binary(data_chunks)
+          conn =
+            conn
+            |> put_response_headers(response_headers)
+            |> Plug.Conn.send_resp(status, body)
 
-        conn =
-          conn
-          |> put_response_headers(response_headers)
-          |> Plug.Conn.send_resp(status, body)
+          {:ok, conn}
 
-        {:ok, conn}
+        {:error, reason} ->
+          {:error, map_error(reason), conn}
+      end
+    else
+      # Stream each chunk to downstream immediately — no buffering.
+      conn =
+        conn
+        |> put_response_headers(response_headers)
+        |> Plug.Conn.send_chunked(status)
 
-      true ->
-        send_chunked_response(conn, status, response_headers, data_chunks)
+      case completeness do
+        :done ->
+          send_pending_chunks(conn, mint_conn, chunks)
+
+        :more ->
+          stream_chunks_from_mint(conn, mint_conn, upstream.request_timeout, chunks)
+      end
     end
   end
 
-  defp extract_response_parts(parts) do
-    Enum.reduce(parts, {nil, [], []}, fn
-      {:status, status}, {_s, h, d} -> {status, h, d}
-      {:headers, headers}, {s, _h, d} -> {s, headers, d}
-      {:data, chunk}, {s, h, d} -> {s, h, [chunk | d]}
-      :done, acc -> acc
-      {:error, _reason}, acc -> acc
-    end)
+  defp collect_body(mint_conn, _timeout, chunks, :done), do: {:ok, mint_conn, chunks}
+
+  defp collect_body(mint_conn, timeout, chunks, :more) do
+    HttpClient.recv_body(mint_conn, timeout, chunks)
+  end
+
+  defp send_pending_chunks(conn, mint_conn, []) do
+    HttpClient.close(mint_conn)
+    {:ok, conn}
+  end
+
+  defp send_pending_chunks(conn, mint_conn, [chunk | rest]) do
+    case Plug.Conn.chunk(conn, chunk) do
+      {:ok, conn} ->
+        send_pending_chunks(conn, mint_conn, rest)
+
+      {:error, :closed} ->
+        HttpClient.close(mint_conn)
+        {:ok, conn}
+    end
   end
 
   defp has_content_length?(headers) do
     Enum.any?(headers, fn {name, _} -> String.downcase(name) == "content-length" end)
   end
 
-  defp send_chunked_response(conn, status, headers, data_chunks) do
-    conn =
-      conn
-      |> put_response_headers(headers)
-      |> Plug.Conn.send_chunked(status)
+  # Streams chunks from Mint to the downstream client immediately as they arrive.
+  # pending_chunks holds any data already received during the headers phase.
+  defp stream_chunks_from_mint(conn, mint_conn, timeout, pending_chunks) do
+    on_chunk = fn chunk ->
+      case Plug.Conn.chunk(conn, chunk) do
+        {:ok, _conn} ->
+          :ok
 
-    send_chunks(conn, data_chunks)
-  end
+        {:error, :closed} ->
+          :telemetry.execute(
+            [:relayixir, :http, :downstream, :disconnect],
+            %{system_time: System.system_time()},
+            %{}
+          )
 
-  defp send_chunks(conn, []) do
-    {:ok, conn}
-  end
+          Logger.info("Downstream client disconnected during chunked response")
+          :stop
+      end
+    end
 
-  defp send_chunks(conn, [chunk | rest]) do
-    case Plug.Conn.chunk(conn, chunk) do
-      {:ok, conn} ->
-        send_chunks(conn, rest)
-
-      {:error, :closed} ->
-        :telemetry.execute(
-          [:relayixir, :http, :downstream, :disconnect],
-          %{system_time: System.system_time()},
-          %{}
-        )
-
-        Logger.info("Downstream client disconnected during chunked response")
+    case HttpClient.recv_body_streaming(mint_conn, timeout, pending_chunks, on_chunk) do
+      {:ok, mint_conn} ->
+        HttpClient.close(mint_conn)
         {:ok, conn}
+
+      {:stop, mint_conn} ->
+        HttpClient.close(mint_conn)
+        {:ok, conn}
+
+      {:error, reason} ->
+        {:error, map_error(reason), conn}
     end
   end
 
