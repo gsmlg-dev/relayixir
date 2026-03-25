@@ -5,6 +5,7 @@ defmodule Relayixir.Config.RouteConfig do
 
   use Agent
 
+  @spec start_link(keyword()) :: Agent.on_start()
   def start_link(_opts) do
     Agent.start_link(fn -> [] end, name: __MODULE__)
   end
@@ -12,6 +13,7 @@ defmodule Relayixir.Config.RouteConfig do
   @doc """
   Returns all configured routes.
   """
+  @spec get_routes() :: [map()]
   def get_routes do
     Agent.get(__MODULE__, & &1)
   end
@@ -19,6 +21,7 @@ defmodule Relayixir.Config.RouteConfig do
   @doc """
   Replaces all routes with the given list.
   """
+  @spec put_routes([map()]) :: :ok
   def put_routes(routes) when is_list(routes) do
     Agent.update(__MODULE__, fn _ -> routes end)
   end
@@ -28,6 +31,7 @@ defmodule Relayixir.Config.RouteConfig do
 
   Routes are matched by `host_match` (exact or wildcard "*") and `path_prefix`.
   """
+  @spec find_route(String.t(), String.t()) :: map() | nil
   def find_route(host, path) do
     routes = get_routes()
 

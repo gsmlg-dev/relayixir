@@ -3,6 +3,19 @@ defmodule Relayixir.Proxy.Upstream do
   Upstream descriptor and route resolution.
   """
 
+  @type t :: %__MODULE__{
+          scheme: atom() | nil,
+          host: String.t() | nil,
+          port: non_neg_integer() | nil,
+          path_prefix_rewrite: String.t() | nil,
+          request_timeout: non_neg_integer(),
+          connect_timeout: non_neg_integer(),
+          first_byte_timeout: non_neg_integer(),
+          websocket?: boolean(),
+          host_forward_mode: :preserve | :rewrite_to_upstream | :route_defined,
+          metadata: map()
+        }
+
   defstruct [
     :scheme,
     :host,
@@ -21,6 +34,7 @@ defmodule Relayixir.Proxy.Upstream do
   @doc """
   Resolves the upstream for a given `Plug.Conn` based on configured routes and upstreams.
   """
+  @spec resolve(Plug.Conn.t()) :: {:ok, t()} | {:error, atom()}
   def resolve(%Plug.Conn{} = conn) do
     host = conn.host
     path = conn.request_path

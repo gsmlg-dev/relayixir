@@ -11,6 +11,7 @@ defmodule Relayixir.Proxy.HttpPlug do
   @doc """
   Proxies the HTTP request to the resolved upstream.
   """
+  @spec call(Plug.Conn.t(), Upstream.t()) :: Plug.Conn.t()
   def call(%Plug.Conn{} = conn, %Upstream{} = upstream) do
     start_time = System.monotonic_time()
 
@@ -123,7 +124,11 @@ defmodule Relayixir.Proxy.HttpPlug do
   end
 
   defp stream_response(conn, mint_conn, upstream) do
-    case HttpClient.recv_response(mint_conn, upstream.request_timeout) do
+    case HttpClient.recv_response(
+           mint_conn,
+           upstream.request_timeout,
+           upstream.first_byte_timeout
+         ) do
       {:ok, mint_conn, parts} ->
         HttpClient.close(mint_conn)
         send_downstream(conn, parts)

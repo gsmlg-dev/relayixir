@@ -10,6 +10,8 @@ defmodule Relayixir.Proxy.WebSocket.UpstreamClient do
   @doc """
   Connects to upstream WebSocket. Returns `{:ok, conn, ref, websocket}` or `{:error, reason}`.
   """
+  @spec connect(Relayixir.Proxy.Upstream.t(), [{String.t(), String.t()}]) ::
+          {:ok, Mint.HTTP.t(), Mint.Types.request_ref(), Mint.WebSocket.t()} | {:error, term()}
   def connect(upstream, headers \\ []) do
     scheme = upstream.scheme || :http
     ws_scheme = if scheme == :https, do: :wss, else: :ws
@@ -52,6 +54,9 @@ defmodule Relayixir.Proxy.WebSocket.UpstreamClient do
   @doc """
   Sends a frame to the upstream WebSocket.
   """
+  @spec send_frame(Mint.HTTP.t(), Mint.WebSocket.t(), Mint.Types.request_ref(), Frame.t()) ::
+          {:ok, Mint.HTTP.t(), Mint.WebSocket.t()}
+          | {:error, Mint.HTTP.t(), Mint.WebSocket.t(), term()}
   def send_frame(conn, websocket, ref, %Frame{} = frame) do
     mint_frame = Frame.to_mint(frame)
 
@@ -71,6 +76,9 @@ defmodule Relayixir.Proxy.WebSocket.UpstreamClient do
   Decodes incoming data from the upstream WebSocket connection.
   Returns `{:ok, conn, websocket, frames}` or `{:error, reason}`.
   """
+  @spec decode_message(Mint.HTTP.t(), Mint.WebSocket.t(), term()) ::
+          {:ok, Mint.HTTP.t(), Mint.WebSocket.t(), [Frame.t()]}
+          | {:error, Mint.HTTP.t(), Mint.WebSocket.t(), term()}
   def decode_message(conn, websocket, message) do
     case Mint.WebSocket.stream(conn, message) do
       {:ok, conn, [{:data, _ref, data}]} ->
@@ -97,6 +105,7 @@ defmodule Relayixir.Proxy.WebSocket.UpstreamClient do
   @doc """
   Closes the upstream connection.
   """
+  @spec close(Mint.HTTP.t()) :: {:ok, Mint.HTTP.t()}
   def close(conn) do
     Mint.HTTP.close(conn)
   end

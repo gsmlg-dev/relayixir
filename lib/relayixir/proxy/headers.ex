@@ -17,6 +17,9 @@ defmodule Relayixir.Proxy.Headers do
   @doc """
   Prepares request headers for upstream forwarding.
   """
+  @spec prepare_request_headers(Plug.Conn.t(), Relayixir.Proxy.Upstream.t(), keyword()) :: [
+          {String.t(), String.t()}
+        ]
   def prepare_request_headers(
         %Plug.Conn{} = conn,
         %Relayixir.Proxy.Upstream{} = upstream,
@@ -32,6 +35,7 @@ defmodule Relayixir.Proxy.Headers do
   @doc """
   Strips hop-by-hop headers from response headers.
   """
+  @spec prepare_response_headers([{String.t(), String.t()}]) :: [{String.t(), String.t()}]
   def prepare_response_headers(headers) when is_list(headers) do
     strip_hop_by_hop(headers)
   end
@@ -39,6 +43,7 @@ defmodule Relayixir.Proxy.Headers do
   @doc """
   Formats an IP address tuple as a string.
   """
+  @spec format_ip(tuple() | String.t()) :: String.t()
   def format_ip({a, b, c, d}), do: "#{a}.#{b}.#{c}.#{d}"
 
   def format_ip({a, b, c, d, e, f, g, h}),

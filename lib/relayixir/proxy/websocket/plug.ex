@@ -15,6 +15,7 @@ defmodule Relayixir.Proxy.WebSocket.Plug do
   Upgrades the connection to WebSocket if valid, otherwise returns 400.
   Called from Router when a WebSocket-eligible route with upgrade headers is matched.
   """
+  @spec call(Plug.Conn.t(), Upstream.t()) :: Plug.Conn.t()
   def call(%Plug.Conn{} = conn, %Upstream{} = upstream) do
     if valid_websocket_upgrade?(conn) do
       ws_headers = extract_ws_headers(conn)

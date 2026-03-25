@@ -8,6 +8,7 @@ defmodule Relayixir.Proxy.HttpClient do
   @doc """
   Opens a Mint HTTP connection to the upstream.
   """
+  @spec connect(Relayixir.Proxy.Upstream.t()) :: {:ok, Mint.HTTP.t()} | {:error, term()}
   def connect(%Relayixir.Proxy.Upstream{} = upstream) do
     scheme = upstream.scheme || :http
     transport_opts = [timeout: upstream.connect_timeout]
@@ -18,6 +19,14 @@ defmodule Relayixir.Proxy.HttpClient do
   @doc """
   Sends an HTTP request on the Mint connection.
   """
+  @spec send_request(
+          Mint.HTTP.t(),
+          String.t(),
+          String.t(),
+          [{String.t(), String.t()}],
+          binary() | nil
+        ) ::
+          {:ok, Mint.HTTP.t(), Mint.Types.request_ref()} | {:error, Mint.HTTP.t(), term()}
   def send_request(conn, method, path, headers, body \\ nil) do
     Mint.HTTP.request(conn, method, path, headers, body)
   end
@@ -30,22 +39,44 @@ defmodule Relayixir.Proxy.HttpClient do
 
   Returns `{:error, reason}` on timeout or transport error.
   """
-  def recv_response(conn, timeout) do
+  @spec recv_response(Mint.HTTP.t(), non_neg_integer(), non_neg_integer() | nil) ::
+          {:ok, Mint.HTTP.t(), list()} | {:error, term()}
+  def recv_response(conn, timeout, first_byte_timeout \\ nil) do
     deadline = System.monotonic_time(:millisecond) + timeout
-    recv_loop(conn, deadline, [])
+
+    first_byte_deadline =
+      if first_byte_timeout,
+        do: System.monotonic_time(:millisecond) + first_byte_timeout,
+        else: nil
+
+    recv_loop(conn, deadline, first_byte_deadline, [])
   end
 
   @doc """
   Closes the Mint connection.
   """
+  @spec close(Mint.HTTP.t()) :: {:ok, Mint.HTTP.t()}
   def close(conn) do
     Mint.HTTP.close(conn)
   end
 
-  defp recv_loop(conn, deadline, acc) do
+  defp recv_loop(conn, deadline, first_byte_deadline, acc) do
     remaining = deadline - System.monotonic_time(:millisecond)
 
-    if remaining <= 0 do
+    first_byte_remaining =
+      if first_byte_deadline && acc == [] do
+        first_byte_deadline - System.monotonic_time(:millisecond)
+      else
+        nil
+      end
+
+    effective_remaining =
+      case first_byte_remaining do
+        nil -> remaining
+        fbr -> min(remaining, fbr)
+      end
+
+    if effective_remaining <= 0 do
       Mint.HTTP.close(conn)
       {:error, :upstream_timeout}
     else
@@ -53,7 +84,7 @@ defmodule Relayixir.Proxy.HttpClient do
         message ->
           case Mint.HTTP.stream(conn, message) do
             :unknown ->
-              recv_loop(conn, deadline, acc)
+              recv_loop(conn, deadline, first_byte_deadline, acc)
 
             {:ok, conn, responses} ->
               {new_acc, done?} = process_responses(responses, acc)
@@ -61,7 +92,7 @@ defmodule Relayixir.Proxy.HttpClient do
               if done? do
                 {:ok, conn, Enum.reverse(new_acc)}
               else
-                recv_loop(conn, deadline, new_acc)
+                recv_loop(conn, deadline, first_byte_deadline, new_acc)
               end
 
             {:error, conn, reason, _responses} ->
@@ -70,7 +101,7 @@ defmodule Relayixir.Proxy.HttpClient do
               {:error, :upstream_invalid_response}
           end
       after
-        remaining ->
+        effective_remaining ->
           Mint.HTTP.close(conn)
           {:error, :upstream_timeout}
       end

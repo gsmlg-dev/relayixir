@@ -33,6 +33,7 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
   @doc """
   Starts a bridge process under the DynamicSupervisor.
   """
+  @spec start(pid(), Upstream.t(), [{String.t(), String.t()}]) :: {:ok, pid()} | {:error, term()}
   def start(downstream_pid, %Upstream{} = upstream, ws_headers \\ []) do
     session_id = generate_session_id()
 
@@ -42,6 +43,7 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
     )
   end
 
+  @spec start_link(tuple()) :: GenServer.on_start()
   def start_link({downstream_pid, upstream, ws_headers, session_id}) do
     GenServer.start_link(__MODULE__, {downstream_pid, upstream, ws_headers, session_id},
       name: via_registry(session_id)
@@ -51,6 +53,7 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
   @doc """
   Sends a frame from downstream (client) to be relayed upstream.
   """
+  @spec relay_from_downstream(pid(), Frame.t()) :: :ok
   def relay_from_downstream(bridge_pid, %Frame{} = frame) do
     GenServer.cast(bridge_pid, {:downstream_frame, frame})
   end
@@ -58,10 +61,12 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
   @doc """
   Notifies the bridge that downstream has disconnected.
   """
+  @spec downstream_closed(pid(), non_neg_integer(), String.t()) :: :ok
   def downstream_closed(bridge_pid, code \\ 1000, reason \\ "") do
     GenServer.cast(bridge_pid, {:downstream_closed, code, reason})
   end
 
+  @spec child_spec(tuple()) :: Supervisor.child_spec()
   def child_spec({_downstream_pid, _upstream, _ws_headers, _session_id} = args) do
     %{
       id: __MODULE__,
@@ -100,9 +105,25 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
 
   @impl true
   def handle_continue(:connect_upstream, state) do
+    :telemetry.execute(
+      [:relayixir, :websocket, :upstream, :connect, :start],
+      %{system_time: System.system_time()},
+      %{session_id: state.session_id, upstream: "#{state.upstream.host}:#{state.upstream.port}"}
+    )
+
     case UpstreamClient.connect(state.upstream, state.ws_headers) do
       {:ok, conn, ref, websocket} ->
         Logger.info("WebSocket bridge #{state.session_id}: upstream connected")
+
+        :telemetry.execute(
+          [:relayixir, :websocket, :upstream, :connect, :stop],
+          %{system_time: System.system_time()},
+          %{
+            session_id: state.session_id,
+            upstream: "#{state.upstream.host}:#{state.upstream.port}",
+            result: :ok
+          }
+        )
 
         new_state = %{
           state
@@ -118,6 +139,17 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
       {:error, reason} ->
         Logger.error(
           "WebSocket bridge #{state.session_id}: upstream connect failed: #{inspect(reason)}"
+        )
+
+        :telemetry.execute(
+          [:relayixir, :websocket, :upstream, :connect, :stop],
+          %{system_time: System.system_time()},
+          %{
+            session_id: state.session_id,
+            upstream: "#{state.upstream.host}:#{state.upstream.port}",
+            result: :error,
+            reason: reason
+          }
         )
 
         emit_exception(state, {:upstream_connect_failed, reason})

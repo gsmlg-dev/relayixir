@@ -17,9 +17,12 @@ defmodule Relayixir.Telemetry.Events do
     [:relayixir, :websocket, :session, :stop],
     [:relayixir, :websocket, :frame, :in],
     [:relayixir, :websocket, :frame, :out],
+    [:relayixir, :websocket, :upstream, :connect, :start],
+    [:relayixir, :websocket, :upstream, :connect, :stop],
     [:relayixir, :websocket, :exception]
   ]
 
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
@@ -121,6 +124,31 @@ defmodule Relayixir.Telemetry.Events do
 
   def handle_event([:relayixir, :websocket, :frame, :out], _measurements, metadata, _config) do
     Logger.debug("WebSocket frame sent", session_id: metadata[:session_id], type: metadata[:type])
+  end
+
+  def handle_event(
+        [:relayixir, :websocket, :upstream, :connect, :start],
+        _measurements,
+        metadata,
+        _config
+      ) do
+    Logger.debug("WebSocket upstream connection starting",
+      session_id: metadata[:session_id],
+      upstream: metadata[:upstream]
+    )
+  end
+
+  def handle_event(
+        [:relayixir, :websocket, :upstream, :connect, :stop],
+        _measurements,
+        metadata,
+        _config
+      ) do
+    Logger.debug("WebSocket upstream connection completed",
+      session_id: metadata[:session_id],
+      upstream: metadata[:upstream],
+      result: metadata[:result]
+    )
   end
 
   def handle_event([:relayixir, :websocket, :exception], _measurements, metadata, _config) do

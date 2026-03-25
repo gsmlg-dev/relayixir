@@ -6,6 +6,7 @@ defmodule Relayixir.Proxy.ErrorMapper do
   @doc """
   Returns `{status_code, body}` for the given error atom.
   """
+  @spec to_response(atom()) :: {non_neg_integer(), String.t()}
   def to_response(:route_not_found), do: {404, "Not Found"}
   def to_response(:upstream_connect_failed), do: {502, "Bad Gateway"}
   def to_response(:upstream_timeout), do: {504, "Gateway Timeout"}
@@ -16,6 +17,7 @@ defmodule Relayixir.Proxy.ErrorMapper do
   @doc """
   Sends an error response on the given `Plug.Conn`.
   """
+  @spec send_error(Plug.Conn.t(), atom()) :: Plug.Conn.t()
   def send_error(%Plug.Conn{} = conn, error) do
     {status, body} = to_response(error)
 
