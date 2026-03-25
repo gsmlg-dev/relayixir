@@ -105,16 +105,24 @@ defmodule Relayixir.Proxy.DumpHookTest do
       _ = test_pid
     end
 
-    test "hook exceptions do not crash the proxy" do
+    test "hook exceptions do not crash the proxy and are logged" do
+      import ExUnit.CaptureLog
+
       HookConfig.put_on_request_complete(fn _req, _resp ->
         raise "hook exploded"
       end)
 
-      conn =
-        Plug.Test.conn(:get, "http://localhost/ok")
-        |> Relayixir.Router.call(Relayixir.Router.init([]))
+      log =
+        capture_log(fn ->
+          conn =
+            Plug.Test.conn(:get, "http://localhost/ok")
+            |> Relayixir.Router.call(Relayixir.Router.init([]))
 
-      assert conn.status == 200
+          assert conn.status == 200
+        end)
+
+      assert log =~ "on_request_complete hook raised"
+      assert log =~ "hook exploded"
     end
   end
 end
