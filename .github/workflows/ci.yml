@@ -15,7 +15,7 @@ concurrency:
 
 env:
   MIX_ENV: dev
-  ELIXIR_VERSION: "1.17"
+  ELIXIR_VERSION: "1.18"
   OTP_VERSION: "27"
 
 jobs:
