@@ -2,7 +2,6 @@ defmodule Relayixir.Proxy.WebSocket.PlugTest do
   use ExUnit.Case
 
   alias Relayixir.Proxy.WebSocket.Plug, as: WsPlug
-  alias Relayixir.Proxy.WebSocket.Bridge
   alias Relayixir.Proxy.Upstream
 
   describe "WebSock callback: handle_info EXIT" do
