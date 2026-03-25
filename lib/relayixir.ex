@@ -30,7 +30,7 @@ defmodule Relayixir do
   `Application.get_env(:relayixir, :upstreams)` if present.
   """
 
-  alias Relayixir.Config.{RouteConfig, UpstreamConfig}
+  alias Relayixir.Config.{RouteConfig, UpstreamConfig, HookConfig}
 
   @doc """
   Atomically loads routes and upstreams from a keyword list.
@@ -42,6 +42,11 @@ defmodule Relayixir do
   def load(config) when is_list(config) do
     if routes = config[:routes], do: RouteConfig.put_routes(routes)
     if upstreams = config[:upstreams], do: UpstreamConfig.put_upstreams(upstreams)
+
+    if hooks = config[:hooks] do
+      HookConfig.put_on_request_complete(hooks[:on_request_complete])
+    end
+
     :ok
   end
 

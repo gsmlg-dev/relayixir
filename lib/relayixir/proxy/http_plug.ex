@@ -6,7 +6,8 @@ defmodule Relayixir.Proxy.HttpPlug do
 
   require Logger
 
-  alias Relayixir.Proxy.{Headers, HttpClient, ErrorMapper, Upstream}
+  alias Relayixir.Proxy.{Headers, HttpClient, ErrorMapper, Upstream, Request, Response}
+  alias Relayixir.Config.HookConfig
 
   @doc """
   Proxies the HTTP request to the resolved upstream.
@@ -28,15 +29,19 @@ defmodule Relayixir.Proxy.HttpPlug do
     )
 
     case do_proxy(conn, upstream) do
-      {:ok, conn} ->
-        duration = System.monotonic_time() - start_time
+      {:ok, conn, request} ->
+        duration_ms =
+          System.convert_time_unit(System.monotonic_time() - start_time, :native, :millisecond)
+
+        response = Response.new(conn.status, conn.resp_headers, duration_ms)
 
         :telemetry.execute(
           [:relayixir, :http, :request, :stop],
-          %{duration: duration},
-          Map.put(metadata, :status, conn.status)
+          %{duration: System.monotonic_time() - start_time},
+          Map.merge(metadata, %{status: conn.status, request: request, response: response})
         )
 
+        invoke_hook(request, response)
         conn
 
       {:error, reason, conn} ->
@@ -63,6 +68,7 @@ defmodule Relayixir.Proxy.HttpPlug do
       |> Headers.prepare_request_headers(upstream)
       |> Enum.reject(fn {name, _} -> String.downcase(name) == "content-length" end)
 
+    request = Request.from_conn(conn, request_headers, "#{upstream.host}:#{upstream.port}")
     path = build_upstream_path(conn, upstream)
     method = String.upcase(conn.method)
 
@@ -70,7 +76,10 @@ defmodule Relayixir.Proxy.HttpPlug do
          {:ok, mint_conn, request_ref} <-
            HttpClient.send_request(mint_conn, method, path, request_headers, :stream),
          {:ok, mint_conn} <- stream_request_body(conn, mint_conn, request_ref) do
-      stream_response(conn, mint_conn, upstream)
+      case stream_response(conn, mint_conn, upstream) do
+        {:ok, conn} -> {:ok, conn, request}
+        {:error, reason, conn} -> {:error, reason, conn}
+      end
     else
       {:error, reason} ->
         {:error, map_error(reason), conn}
@@ -282,6 +291,15 @@ defmodule Relayixir.Proxy.HttpPlug do
     Enum.reduce(headers, conn, fn {name, value}, conn ->
       Plug.Conn.put_resp_header(conn, String.downcase(name), value)
     end)
+  end
+
+  defp invoke_hook(request, response) do
+    case HookConfig.get_on_request_complete() do
+      nil -> :ok
+      hook_fn -> hook_fn.(request, response)
+    end
+  rescue
+    _ -> :ok
   end
 
   defp map_error(:upstream_timeout), do: :upstream_timeout

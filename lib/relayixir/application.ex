@@ -10,6 +10,7 @@ defmodule Relayixir.Application do
     children = [
       Relayixir.Config.RouteConfig,
       Relayixir.Config.UpstreamConfig,
+      Relayixir.Config.HookConfig,
       Relayixir.Telemetry.Events,
       {DynamicSupervisor,
        name: Relayixir.Proxy.WebSocket.BridgeSupervisor, strategy: :one_for_one},
