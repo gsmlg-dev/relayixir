@@ -1,14 +1,20 @@
 defmodule Relayixir.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+  @source_url "https://github.com/gsmlg-dev/relayixir"
+
   def project do
     [
       app: :relayixir,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
-      deps: deps()
+      deps: deps(),
+      description: description(),
+      package: package(),
+      source_url: @source_url
     ]
   end
 
@@ -21,6 +27,18 @@ defmodule Relayixir.MixProject do
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
+
+  defp description do
+    "An Elixir-native HTTP/WebSocket reverse proxy built on Bandit, Plug, Mint, and Mint.WebSocket."
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{"GitHub" => @source_url},
+      maintainers: ["gsmlg-dev"]
+    ]
+  end
 
   defp deps do
     [

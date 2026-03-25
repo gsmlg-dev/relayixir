@@ -37,6 +37,50 @@ defmodule Relayixir.TestUpstream do
     |> send_resp(200, "slow response")
   end
 
+  get "/very-slow" do
+    # Delays before sending any response (triggers first_byte_timeout)
+    Process.sleep(5_000)
+
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(200, "very slow response")
+  end
+
+  get "/no-content-length" do
+    # Close-delimited response: no Content-Length, no chunked encoding
+    conn =
+      conn
+      |> put_resp_content_type("text/plain")
+      |> send_chunked(200)
+
+    {:ok, conn} = chunk(conn, "streamed data")
+    conn
+  end
+
+  post "/large-echo" do
+    {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(200, body)
+  end
+
+  get "/multi-chunk" do
+    conn =
+      conn
+      |> put_resp_content_type("text/plain")
+      |> send_chunked(200)
+
+    {:ok, conn} = chunk(conn, "part1-")
+    {:ok, conn} = chunk(conn, "part2-")
+    {:ok, conn} = chunk(conn, "part3")
+    conn
+  end
+
+  get "/304" do
+    send_resp(conn, 304, "")
+  end
+
   post "/echo" do
     {:ok, body, conn} = Plug.Conn.read_body(conn)
 

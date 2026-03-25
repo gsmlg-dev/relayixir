@@ -16,14 +16,18 @@ defmodule Relayixir.Proxy.Upstream do
           metadata: map()
         }
 
+  @default_request_timeout 60_000
+  @default_connect_timeout 5_000
+  @default_first_byte_timeout 30_000
+
   defstruct [
     :scheme,
     :host,
     :port,
     :path_prefix_rewrite,
-    request_timeout: 60_000,
-    connect_timeout: 5_000,
-    first_byte_timeout: 30_000,
+    request_timeout: @default_request_timeout,
+    connect_timeout: @default_connect_timeout,
+    first_byte_timeout: @default_first_byte_timeout,
     websocket?: false,
     host_forward_mode: :preserve,
     metadata: %{}
@@ -61,9 +65,10 @@ defmodule Relayixir.Proxy.Upstream do
       host: Map.fetch!(config, :host),
       port: Map.get(config, :port, 80),
       path_prefix_rewrite: Map.get(config, :path_prefix_rewrite),
-      request_timeout: get_timeout(route, config, :request_timeout, 60_000),
-      connect_timeout: get_timeout(route, config, :connect_timeout, 5_000),
-      first_byte_timeout: get_timeout(route, config, :first_byte_timeout, 30_000),
+      request_timeout: get_timeout(route, config, :request_timeout, @default_request_timeout),
+      connect_timeout: get_timeout(route, config, :connect_timeout, @default_connect_timeout),
+      first_byte_timeout:
+        get_timeout(route, config, :first_byte_timeout, @default_first_byte_timeout),
       websocket?: Map.get(route, :websocket, false),
       host_forward_mode: Map.get(route, :host_forward_mode, :preserve),
       metadata: Map.get(config, :metadata, %{})

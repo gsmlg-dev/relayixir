@@ -13,6 +13,7 @@ defmodule Relayixir.Support.Errors do
   @doc """
   Creates a new error struct.
   """
+  @spec new(atom(), map()) :: t()
   def new(type, metadata \\ %{}) do
     %__MODULE__{type: type, metadata: metadata}
   end
