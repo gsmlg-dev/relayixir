@@ -63,10 +63,12 @@ defmodule Relayixir.Proxy.HttpPlug do
 
   defp do_proxy(conn, upstream) do
     # Strip content-length so Mint uses chunked transfer encoding for streaming.
+    # Then append any route-level injected headers (overriding earlier values if same name).
     request_headers =
       conn
       |> Headers.prepare_request_headers(upstream)
       |> Enum.reject(fn {name, _} -> String.downcase(name) == "content-length" end)
+      |> Kernel.++(upstream.inject_request_headers)
 
     request = Request.from_conn(conn, request_headers, "#{upstream.host}:#{upstream.port}")
     path = build_upstream_path(conn, upstream)

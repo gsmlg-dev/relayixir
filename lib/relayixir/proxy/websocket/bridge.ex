@@ -25,7 +25,9 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
     :close_timer,
     status: :connecting,
     close_reason: nil,
-    ws_headers: []
+    ws_headers: [],
+    # Frames queued while upstream is still connecting
+    pending_frames: []
   ]
 
   ## Public API
@@ -131,10 +133,11 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
             upstream_ref: ref,
             upstream_websocket: websocket,
             status: :open,
-            last_activity_at: System.monotonic_time(:millisecond)
+            last_activity_at: System.monotonic_time(:millisecond),
+            pending_frames: []
         }
 
-        {:noreply, new_state}
+        flush_pending_frames(state.pending_frames, new_state)
 
       {:error, reason} ->
         Logger.error(
@@ -195,8 +198,14 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
     end
   end
 
+  def handle_cast({:downstream_frame, frame}, %{status: :connecting} = state) do
+    # Queue frames that arrive before the upstream connection is established.
+    # They will be flushed once the Bridge transitions to :open.
+    {:noreply, %{state | pending_frames: state.pending_frames ++ [frame]}}
+  end
+
   def handle_cast({:downstream_frame, _frame}, %{status: status} = state)
-      when status != :open do
+      when status not in [:open, :connecting] do
     Logger.debug("WebSocket bridge #{state.session_id}: dropping frame in #{status} state")
     {:noreply, state}
   end
@@ -321,6 +330,23 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
   end
 
   ## Private Helpers
+
+  defp flush_pending_frames([], state), do: {:noreply, state}
+
+  defp flush_pending_frames([frame | rest], state) do
+    case send_to_upstream(state, frame) do
+      {:ok, new_state} ->
+        flush_pending_frames(rest, %{
+          new_state
+          | last_activity_at: System.monotonic_time(:millisecond)
+        })
+
+      {:error, state} ->
+        emit_exception(state, :upstream_send_failed)
+        send_to_downstream(state, Close.internal_error_frame())
+        stop_with_reason(state, :upstream_send_failed)
+    end
+  end
 
   defp emit_exception(state, reason) do
     :telemetry.execute(
