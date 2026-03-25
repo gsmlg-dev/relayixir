@@ -15,6 +15,8 @@ defmodule Relayixir.Application do
       {DynamicSupervisor,
        name: Relayixir.Proxy.WebSocket.BridgeSupervisor, strategy: :one_for_one},
       {Registry, keys: :unique, name: Relayixir.Proxy.WebSocket.BridgeRegistry},
+      {DynamicSupervisor, name: Relayixir.Proxy.ConnPool.Supervisor, strategy: :one_for_one},
+      {Registry, keys: :unique, name: Relayixir.Proxy.ConnPool.Registry},
       {Bandit, plug: Relayixir.Router, scheme: :http, port: port}
     ]
 

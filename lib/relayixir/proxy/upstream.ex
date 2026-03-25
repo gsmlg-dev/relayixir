@@ -15,6 +15,7 @@ defmodule Relayixir.Proxy.Upstream do
           host_forward_mode: :preserve | :rewrite_to_upstream | :route_defined,
           allowed_methods: [String.t()] | nil,
           inject_request_headers: [{String.t(), String.t()}],
+          pool_size: non_neg_integer() | nil,
           metadata: map()
         }
 
@@ -34,6 +35,7 @@ defmodule Relayixir.Proxy.Upstream do
     host_forward_mode: :preserve,
     allowed_methods: nil,
     inject_request_headers: [],
+    pool_size: nil,
     metadata: %{}
   ]
 
@@ -77,6 +79,7 @@ defmodule Relayixir.Proxy.Upstream do
       host_forward_mode: Map.get(route, :host_forward_mode, :preserve),
       allowed_methods: Map.get(route, :allowed_methods),
       inject_request_headers: Map.get(route, :inject_request_headers, []),
+      pool_size: Map.get(config, :pool_size),
       metadata: Map.get(config, :metadata, %{})
     }
   end

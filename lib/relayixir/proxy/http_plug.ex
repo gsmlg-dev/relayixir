@@ -6,7 +6,7 @@ defmodule Relayixir.Proxy.HttpPlug do
 
   require Logger
 
-  alias Relayixir.Proxy.{Headers, HttpClient, ErrorMapper, Upstream, Request, Response}
+  alias Relayixir.Proxy.{Headers, HttpClient, ErrorMapper, Upstream, Request, Response, ConnPool}
   alias Relayixir.Config.HookConfig
 
   @doc """
@@ -111,30 +111,64 @@ defmodule Relayixir.Proxy.HttpPlug do
   end
 
   defp connect_upstream(upstream) do
+    upstream_label = "#{upstream.host}:#{upstream.port}"
+
     :telemetry.execute(
       [:relayixir, :http, :upstream, :connect, :start],
       %{system_time: System.system_time()},
-      %{upstream: "#{upstream.host}:#{upstream.port}"}
+      %{upstream: upstream_label}
     )
 
-    case HttpClient.connect(upstream) do
-      {:ok, mint_conn} ->
+    result = checkout_or_connect(upstream)
+
+    case result do
+      {:ok, _mint_conn} ->
         :telemetry.execute(
           [:relayixir, :http, :upstream, :connect, :stop],
           %{system_time: System.system_time()},
-          %{upstream: "#{upstream.host}:#{upstream.port}", result: :ok}
+          %{upstream: upstream_label, result: :ok}
         )
-
-        {:ok, mint_conn}
 
       {:error, reason} ->
         :telemetry.execute(
           [:relayixir, :http, :upstream, :connect, :stop],
           %{system_time: System.system_time()},
-          %{upstream: "#{upstream.host}:#{upstream.port}", result: :error, reason: reason}
+          %{upstream: upstream_label, result: :error, reason: reason}
         )
+    end
 
-        {:error, :upstream_connect_failed}
+    result
+  end
+
+  defp checkout_or_connect(%Upstream{pool_size: nil} = upstream) do
+    case HttpClient.connect(upstream) do
+      {:ok, _} = ok -> ok
+      {:error, _} -> {:error, :upstream_connect_failed}
+    end
+  end
+
+  defp checkout_or_connect(%Upstream{pool_size: pool_size} = upstream)
+       when is_integer(pool_size) and pool_size > 0 do
+    ConnPool.ensure_started(upstream)
+
+    case ConnPool.checkout(upstream) do
+      {:ok, conn} ->
+        {:ok, conn}
+
+      {:error, :empty} ->
+        case HttpClient.connect(upstream) do
+          {:ok, _} = ok -> ok
+          {:error, _} -> {:error, :upstream_connect_failed}
+        end
+    end
+  end
+
+  # Returns a connection to the pool (if pooling enabled) or closes it.
+  defp release_conn(upstream, mint_conn) do
+    if upstream.pool_size do
+      ConnPool.checkin(upstream, mint_conn)
+    else
+      HttpClient.close(mint_conn)
     end
   end
 
@@ -174,9 +208,9 @@ defmodule Relayixir.Proxy.HttpPlug do
     end
   end
 
-  defp forward_response(conn, mint_conn, _upstream, status, response_headers, _chunks, _complete)
+  defp forward_response(conn, mint_conn, upstream, status, response_headers, _chunks, _complete)
        when status in [204, 304] do
-    HttpClient.close(mint_conn)
+    release_conn(upstream, mint_conn)
 
     conn =
       conn
@@ -199,7 +233,7 @@ defmodule Relayixir.Proxy.HttpPlug do
       # Collect body — bounded by the declared content-length.
       case collect_body(mint_conn, upstream.request_timeout, chunks, completeness) do
         {:ok, mint_conn, body_chunks} ->
-          HttpClient.close(mint_conn)
+          release_conn(upstream, mint_conn)
           body = IO.iodata_to_binary(body_chunks)
 
           conn =
@@ -221,10 +255,10 @@ defmodule Relayixir.Proxy.HttpPlug do
 
       case completeness do
         :done ->
-          send_pending_chunks(conn, mint_conn, chunks)
+          send_pending_chunks(conn, mint_conn, upstream, chunks)
 
         :more ->
-          stream_chunks_from_mint(conn, mint_conn, upstream.request_timeout, chunks)
+          stream_chunks_from_mint(conn, mint_conn, upstream, chunks)
       end
     end
   end
@@ -235,15 +269,15 @@ defmodule Relayixir.Proxy.HttpPlug do
     HttpClient.recv_body(mint_conn, timeout, chunks)
   end
 
-  defp send_pending_chunks(conn, mint_conn, []) do
-    HttpClient.close(mint_conn)
+  defp send_pending_chunks(conn, mint_conn, upstream, []) do
+    release_conn(upstream, mint_conn)
     {:ok, conn}
   end
 
-  defp send_pending_chunks(conn, mint_conn, [chunk | rest]) do
+  defp send_pending_chunks(conn, mint_conn, upstream, [chunk | rest]) do
     case Plug.Conn.chunk(conn, chunk) do
       {:ok, conn} ->
-        send_pending_chunks(conn, mint_conn, rest)
+        send_pending_chunks(conn, mint_conn, upstream, rest)
 
       {:error, :closed} ->
         HttpClient.close(mint_conn)
@@ -257,7 +291,7 @@ defmodule Relayixir.Proxy.HttpPlug do
 
   # Streams chunks from Mint to the downstream client immediately as they arrive.
   # pending_chunks holds any data already received during the headers phase.
-  defp stream_chunks_from_mint(conn, mint_conn, timeout, pending_chunks) do
+  defp stream_chunks_from_mint(conn, mint_conn, upstream, pending_chunks) do
     on_chunk = fn chunk ->
       case Plug.Conn.chunk(conn, chunk) do
         {:ok, _conn} ->
@@ -275,12 +309,18 @@ defmodule Relayixir.Proxy.HttpPlug do
       end
     end
 
-    case HttpClient.recv_body_streaming(mint_conn, timeout, pending_chunks, on_chunk) do
+    case HttpClient.recv_body_streaming(
+           mint_conn,
+           upstream.request_timeout,
+           pending_chunks,
+           on_chunk
+         ) do
       {:ok, mint_conn} ->
-        HttpClient.close(mint_conn)
+        release_conn(upstream, mint_conn)
         {:ok, conn}
 
       {:stop, mint_conn} ->
+        # Downstream disconnected — don't return to pool (request may be incomplete)
         HttpClient.close(mint_conn)
         {:ok, conn}
 
