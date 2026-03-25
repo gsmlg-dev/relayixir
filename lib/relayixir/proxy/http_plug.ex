@@ -77,7 +77,8 @@ defmodule Relayixir.Proxy.HttpPlug do
     with {:ok, mint_conn} <- connect_upstream(upstream),
          {:ok, mint_conn, request_ref} <-
            HttpClient.send_request(mint_conn, method, path, request_headers, :stream),
-         {:ok, mint_conn} <- stream_request_body(conn, mint_conn, request_ref) do
+         {:ok, mint_conn} <-
+           stream_request_body(conn, mint_conn, request_ref, upstream.max_request_body_size) do
       case stream_response(conn, mint_conn, upstream) do
         {:ok, conn} -> {:ok, conn, request}
         {:error, reason, conn} -> {:error, reason, conn}
@@ -93,16 +94,30 @@ defmodule Relayixir.Proxy.HttpPlug do
 
   # Reads the client request body in chunks and forwards each chunk to the upstream
   # via Mint's streaming API. Sends :eof after the last chunk.
-  defp stream_request_body(conn, mint_conn, request_ref) do
+  defp stream_request_body(conn, mint_conn, request_ref, max_size, bytes_read \\ 0)
+
+  defp stream_request_body(conn, mint_conn, request_ref, max_size, bytes_read) do
     case Plug.Conn.read_body(conn, length: 65_536, read_length: 65_536) do
       {:ok, chunk, _conn} ->
-        with {:ok, mint_conn} <- HttpClient.stream_body_chunk(mint_conn, request_ref, chunk) do
-          HttpClient.stream_body_chunk(mint_conn, request_ref, :eof)
+        total = bytes_read + byte_size(chunk)
+
+        if max_size != nil && total > max_size do
+          {:error, :request_too_large}
+        else
+          with {:ok, mint_conn} <- HttpClient.stream_body_chunk(mint_conn, request_ref, chunk) do
+            HttpClient.stream_body_chunk(mint_conn, request_ref, :eof)
+          end
         end
 
       {:more, chunk, conn} ->
-        with {:ok, mint_conn} <- HttpClient.stream_body_chunk(mint_conn, request_ref, chunk) do
-          stream_request_body(conn, mint_conn, request_ref)
+        total = bytes_read + byte_size(chunk)
+
+        if max_size != nil && total > max_size do
+          {:error, :request_too_large}
+        else
+          with {:ok, mint_conn} <- HttpClient.stream_body_chunk(mint_conn, request_ref, chunk) do
+            stream_request_body(conn, mint_conn, request_ref, max_size, total)
+          end
         end
 
       {:error, reason} ->
@@ -377,6 +392,7 @@ defmodule Relayixir.Proxy.HttpPlug do
   defp map_error(:upstream_connect_failed), do: :upstream_connect_failed
   defp map_error(:upstream_invalid_response), do: :upstream_invalid_response
   defp map_error(:response_too_large), do: :response_too_large
+  defp map_error(:request_too_large), do: :request_too_large
   defp map_error(:nxdomain), do: :upstream_connect_failed
   defp map_error(:econnrefused), do: :upstream_connect_failed
   defp map_error(%Mint.TransportError{}), do: :upstream_connect_failed

@@ -184,6 +184,44 @@ defmodule Relayixir.Proxy.HttpPlugTest do
     assert byte_size(conn.resp_body) == 50_000
   end
 
+  test "returns 413 when request body exceeds max_request_body_size", %{port: port} do
+    UpstreamConfig.put_upstreams(%{
+      "test_backend" => %{
+        scheme: :http,
+        host: "127.0.0.1",
+        port: port,
+        max_request_body_size: 50
+      }
+    })
+
+    conn =
+      Plug.Test.conn(:post, "http://localhost/echo", String.duplicate("x", 200))
+      |> Plug.Conn.put_req_header("content-type", "text/plain")
+      |> Relayixir.Router.call(Relayixir.Router.init([]))
+
+    assert conn.status == 413
+    assert conn.resp_body == "Payload Too Large"
+  end
+
+  test "allows request body within max_request_body_size", %{port: port} do
+    UpstreamConfig.put_upstreams(%{
+      "test_backend" => %{
+        scheme: :http,
+        host: "127.0.0.1",
+        port: port,
+        max_request_body_size: 10_000
+      }
+    })
+
+    conn =
+      Plug.Test.conn(:post, "http://localhost/echo", "small body")
+      |> Plug.Conn.put_req_header("content-type", "text/plain")
+      |> Relayixir.Router.call(Relayixir.Router.init([]))
+
+    assert conn.status == 200
+    assert conn.resp_body == "small body"
+  end
+
   test "proxies chunked response" do
     conn =
       Plug.Test.conn(:get, "http://localhost/chunked")

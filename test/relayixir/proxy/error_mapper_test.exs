@@ -24,6 +24,10 @@ defmodule Relayixir.Proxy.ErrorMapperTest do
       assert ErrorMapper.to_response(:response_too_large) == {502, "Bad Gateway"}
     end
 
+    test "request_too_large returns 413" do
+      assert ErrorMapper.to_response(:request_too_large) == {413, "Payload Too Large"}
+    end
+
     test "method_not_allowed returns 405" do
       assert ErrorMapper.to_response(:method_not_allowed) == {405, "Method Not Allowed"}
     end
