@@ -1,16 +1,19 @@
 defmodule Relayixir.Config.ReloadTest do
   use ExUnit.Case, async: false
 
-  alias Relayixir.Config.{RouteConfig, UpstreamConfig}
+  alias Relayixir.Config.{RouteConfig, UpstreamConfig, HookConfig}
 
   setup do
-    # Save state before test, restore after
     original_routes = RouteConfig.get_routes()
     original_upstreams = UpstreamConfig.list_upstreams()
+    original_http_hook = HookConfig.get_on_request_complete()
+    original_ws_hook = HookConfig.get_on_ws_frame()
 
     on_exit(fn ->
       RouteConfig.put_routes(original_routes)
       UpstreamConfig.put_upstreams(original_upstreams)
+      HookConfig.put_on_request_complete(original_http_hook)
+      HookConfig.put_on_ws_frame(original_ws_hook)
     end)
 
     :ok
@@ -38,6 +41,16 @@ defmodule Relayixir.Config.ReloadTest do
       assert [%{upstream_name: "a"}] = RouteConfig.get_routes()
       # Upstreams replaced
       assert UpstreamConfig.list_upstreams() == new_upstreams
+    end
+
+    test "loads hooks via load/1" do
+      hook = fn _req, _resp -> :ok end
+      ws_hook = fn _sid, _dir, _frame -> :ok end
+
+      assert :ok = Relayixir.load(hooks: [on_request_complete: hook, on_ws_frame: ws_hook])
+
+      assert HookConfig.get_on_request_complete() == hook
+      assert HookConfig.get_on_ws_frame() == ws_hook
     end
 
     test "load with empty list is a no-op" do

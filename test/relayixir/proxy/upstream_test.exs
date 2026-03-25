@@ -129,6 +129,73 @@ defmodule Relayixir.Proxy.UpstreamTest do
       assert upstream.first_byte_timeout == 30_000
     end
 
+    test "uses max_response_body_size from upstream config" do
+      RouteConfig.put_routes([
+        %{host_match: "*", path_prefix: "/", upstream_name: "backend"}
+      ])
+
+      UpstreamConfig.put_upstreams(%{
+        "backend" => %{
+          scheme: :http,
+          host: "backend.local",
+          port: 80,
+          max_response_body_size: 1024
+        }
+      })
+
+      conn = Plug.Test.conn(:get, "http://example.com/test")
+      assert {:ok, upstream} = Upstream.resolve(conn)
+      assert upstream.max_response_body_size == 1024
+    end
+
+    test "uses max_request_body_size from upstream config" do
+      RouteConfig.put_routes([
+        %{host_match: "*", path_prefix: "/", upstream_name: "backend"}
+      ])
+
+      UpstreamConfig.put_upstreams(%{
+        "backend" => %{
+          scheme: :http,
+          host: "backend.local",
+          port: 80,
+          max_request_body_size: 2048
+        }
+      })
+
+      conn = Plug.Test.conn(:get, "http://example.com/test")
+      assert {:ok, upstream} = Upstream.resolve(conn)
+      assert upstream.max_request_body_size == 2048
+    end
+
+    test "uses default body size limits when not specified" do
+      RouteConfig.put_routes([
+        %{host_match: "*", path_prefix: "/", upstream_name: "backend"}
+      ])
+
+      UpstreamConfig.put_upstreams(%{
+        "backend" => %{scheme: :http, host: "backend.local", port: 80}
+      })
+
+      conn = Plug.Test.conn(:get, "http://example.com/test")
+      assert {:ok, upstream} = Upstream.resolve(conn)
+      assert upstream.max_response_body_size == 10_485_760
+      assert upstream.max_request_body_size == 8_388_608
+    end
+
+    test "uses pool_size from upstream config" do
+      RouteConfig.put_routes([
+        %{host_match: "*", path_prefix: "/", upstream_name: "backend"}
+      ])
+
+      UpstreamConfig.put_upstreams(%{
+        "backend" => %{scheme: :http, host: "backend.local", port: 80, pool_size: 5}
+      })
+
+      conn = Plug.Test.conn(:get, "http://example.com/test")
+      assert {:ok, upstream} = Upstream.resolve(conn)
+      assert upstream.pool_size == 5
+    end
+
     test "uses host_forward_mode from route" do
       RouteConfig.put_routes([
         %{
