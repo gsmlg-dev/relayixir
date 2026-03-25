@@ -5,8 +5,14 @@ defmodule Relayixir.Proxy.DumpHookTest do
   alias Relayixir.Proxy.{Request, Response}
 
   setup do
-    original = HookConfig.get_on_request_complete()
-    on_exit(fn -> HookConfig.put_on_request_complete(original) end)
+    original_http = HookConfig.get_on_request_complete()
+    original_ws = HookConfig.get_on_ws_frame()
+
+    on_exit(fn ->
+      HookConfig.put_on_request_complete(original_http)
+      HookConfig.put_on_ws_frame(original_ws)
+    end)
+
     :ok
   end
 
@@ -45,6 +51,17 @@ defmodule Relayixir.Proxy.DumpHookTest do
       hook = fn _req, _resp -> :called end
       HookConfig.put_on_request_complete(hook)
       assert HookConfig.get_on_request_complete() == hook
+    end
+
+    test "defaults to nil ws_frame hook" do
+      HookConfig.put_on_ws_frame(nil)
+      assert HookConfig.get_on_ws_frame() == nil
+    end
+
+    test "stores and retrieves a ws_frame hook function" do
+      hook = fn _session_id, _direction, _frame -> :called end
+      HookConfig.put_on_ws_frame(hook)
+      assert HookConfig.get_on_ws_frame() == hook
     end
   end
 

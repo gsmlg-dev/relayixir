@@ -65,10 +65,18 @@ defmodule Relayixir do
   """
   @spec reload() :: :ok
   def reload do
-    load(
+    config = [
       routes: Application.get_env(:relayixir, :routes, []),
       upstreams: Application.get_env(:relayixir, :upstreams, %{})
-    )
+    ]
+
+    config =
+      case Application.get_env(:relayixir, :hooks) do
+        nil -> config
+        hooks -> Keyword.put(config, :hooks, hooks)
+      end
+
+    load(config)
   end
 
   @doc """
