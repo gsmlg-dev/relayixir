@@ -239,7 +239,13 @@ defmodule Relayixir.Proxy.HttpPlug do
        ) do
     if has_content_length?(response_headers) do
       # Collect body — bounded by the declared content-length.
-      case collect_body(mint_conn, upstream.request_timeout, chunks, completeness) do
+      case collect_body(
+             mint_conn,
+             upstream.request_timeout,
+             upstream.max_response_body_size,
+             chunks,
+             completeness
+           ) do
         {:ok, mint_conn, body_chunks} ->
           release_conn(upstream, mint_conn)
           body = IO.iodata_to_binary(body_chunks)
@@ -271,10 +277,23 @@ defmodule Relayixir.Proxy.HttpPlug do
     end
   end
 
-  defp collect_body(mint_conn, _timeout, chunks, :done), do: {:ok, mint_conn, chunks}
+  defp collect_body(mint_conn, _timeout, max_size, chunks, :done) do
+    if max_size != nil do
+      total = chunks |> Enum.map(&byte_size/1) |> Enum.sum()
 
-  defp collect_body(mint_conn, timeout, chunks, :more) do
-    HttpClient.recv_body(mint_conn, timeout, chunks)
+      if total > max_size do
+        HttpClient.close(mint_conn)
+        {:error, :response_too_large}
+      else
+        {:ok, mint_conn, chunks}
+      end
+    else
+      {:ok, mint_conn, chunks}
+    end
+  end
+
+  defp collect_body(mint_conn, timeout, max_size, chunks, :more) do
+    HttpClient.recv_body(mint_conn, timeout, chunks, max_size)
   end
 
   defp send_pending_chunks(conn, mint_conn, upstream, []) do
@@ -357,6 +376,7 @@ defmodule Relayixir.Proxy.HttpPlug do
   defp map_error(:upstream_timeout), do: :upstream_timeout
   defp map_error(:upstream_connect_failed), do: :upstream_connect_failed
   defp map_error(:upstream_invalid_response), do: :upstream_invalid_response
+  defp map_error(:response_too_large), do: :response_too_large
   defp map_error(:nxdomain), do: :upstream_connect_failed
   defp map_error(:econnrefused), do: :upstream_connect_failed
   defp map_error(%Mint.TransportError{}), do: :upstream_connect_failed

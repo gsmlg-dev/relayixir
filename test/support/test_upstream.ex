@@ -109,6 +109,18 @@ defmodule Relayixir.TestUpstream do
     |> send_resp(200, body)
   end
 
+  get "/large-body" do
+    query = Plug.Conn.Query.decode(conn.query_string || "")
+    size_str = Map.get(query, "size", "1024")
+    {n, _} = Integer.parse(size_str)
+    body = String.duplicate("x", n)
+
+    conn
+    |> put_resp_content_type("text/plain")
+    |> put_resp_header("content-length", Integer.to_string(byte_size(body)))
+    |> send_resp(200, body)
+  end
+
   match _ do
     send_resp(conn, 404, "Not Found")
   end

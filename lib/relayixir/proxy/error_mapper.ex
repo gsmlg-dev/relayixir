@@ -12,6 +12,7 @@ defmodule Relayixir.Proxy.ErrorMapper do
   def to_response(:upstream_connect_failed), do: {502, "Bad Gateway"}
   def to_response(:upstream_timeout), do: {504, "Gateway Timeout"}
   def to_response(:upstream_invalid_response), do: {502, "Bad Gateway"}
+  def to_response(:response_too_large), do: {502, "Bad Gateway"}
   def to_response(:internal_error), do: {500, "Internal Server Error"}
   def to_response(_), do: {500, "Internal Server Error"}
 

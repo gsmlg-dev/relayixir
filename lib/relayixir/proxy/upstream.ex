@@ -16,12 +16,14 @@ defmodule Relayixir.Proxy.Upstream do
           allowed_methods: [String.t()] | nil,
           inject_request_headers: [{String.t(), String.t()}],
           pool_size: non_neg_integer() | nil,
+          max_response_body_size: non_neg_integer() | nil,
           metadata: map()
         }
 
   @default_request_timeout 60_000
   @default_connect_timeout 5_000
   @default_first_byte_timeout 30_000
+  @default_max_response_body_size 10_485_760
 
   defstruct [
     :scheme,
@@ -36,6 +38,7 @@ defmodule Relayixir.Proxy.Upstream do
     allowed_methods: nil,
     inject_request_headers: [],
     pool_size: nil,
+    max_response_body_size: @default_max_response_body_size,
     metadata: %{}
   ]
 
@@ -80,6 +83,8 @@ defmodule Relayixir.Proxy.Upstream do
       allowed_methods: Map.get(route, :allowed_methods),
       inject_request_headers: Map.get(route, :inject_request_headers, []),
       pool_size: Map.get(config, :pool_size),
+      max_response_body_size:
+        Map.get(config, :max_response_body_size, @default_max_response_body_size),
       metadata: Map.get(config, :metadata, %{})
     }
   end

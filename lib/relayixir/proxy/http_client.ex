@@ -135,14 +135,16 @@ defmodule Relayixir.Proxy.HttpClient do
   `pending_chunks` holds any data already received during the headers phase.
   Returns `{:ok, conn, [binary()]}` or `{:error, reason}`.
   """
-  @spec recv_body(Mint.HTTP.t(), non_neg_integer(), [binary()]) ::
+  @spec recv_body(Mint.HTTP.t(), non_neg_integer(), [binary()], non_neg_integer() | nil) ::
           {:ok, Mint.HTTP.t(), [binary()]} | {:error, term()}
-  def recv_body(conn, timeout, pending_chunks \\ []) do
+  def recv_body(conn, timeout, pending_chunks \\ [], max_size \\ nil) do
     deadline = System.monotonic_time(:millisecond) + timeout
-    recv_body_collect(conn, deadline, Enum.reverse(pending_chunks))
+    initial_acc = Enum.reverse(pending_chunks)
+    initial_size = initial_acc |> Enum.map(&byte_size/1) |> Enum.sum()
+    recv_body_collect(conn, deadline, initial_acc, initial_size, max_size)
   end
 
-  defp recv_body_collect(conn, deadline, acc) do
+  defp recv_body_collect(conn, deadline, acc, acc_size, max_size) do
     remaining = deadline - System.monotonic_time(:millisecond)
 
     if remaining <= 0 do
@@ -153,12 +155,22 @@ defmodule Relayixir.Proxy.HttpClient do
         message ->
           case Mint.HTTP.stream(conn, message) do
             :unknown ->
-              recv_body_collect(conn, deadline, acc)
+              recv_body_collect(conn, deadline, acc, acc_size, max_size)
 
             {:ok, conn, responses} ->
               case collect_body_batch(responses, acc) do
-                {:done, chunks} -> {:ok, conn, Enum.reverse(chunks)}
-                {:continue, new_acc} -> recv_body_collect(conn, deadline, new_acc)
+                {:done, chunks} ->
+                  {:ok, conn, Enum.reverse(chunks)}
+
+                {:continue, new_acc} ->
+                  new_size = new_acc |> Enum.map(&byte_size/1) |> Enum.sum()
+
+                  if max_size != nil && new_size > max_size do
+                    Mint.HTTP.close(conn)
+                    {:error, :response_too_large}
+                  else
+                    recv_body_collect(conn, deadline, new_acc, new_size, max_size)
+                  end
               end
 
             {:error, conn, _reason, _} ->

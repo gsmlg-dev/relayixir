@@ -130,6 +130,60 @@ defmodule Relayixir.Proxy.HttpPlugTest do
     assert byte_size(conn.resp_body) == 200_000
   end
 
+  test "returns 502 when response exceeds max_response_body_size", %{port: port} do
+    UpstreamConfig.put_upstreams(%{
+      "test_backend" => %{
+        scheme: :http,
+        host: "127.0.0.1",
+        port: port,
+        max_response_body_size: 100
+      }
+    })
+
+    conn =
+      Plug.Test.conn(:get, "http://localhost/large-body?size=500")
+      |> Relayixir.Router.call(Relayixir.Router.init([]))
+
+    assert conn.status == 502
+    assert conn.resp_body == "Bad Gateway"
+  end
+
+  test "allows response within max_response_body_size", %{port: port} do
+    UpstreamConfig.put_upstreams(%{
+      "test_backend" => %{
+        scheme: :http,
+        host: "127.0.0.1",
+        port: port,
+        max_response_body_size: 10_000
+      }
+    })
+
+    conn =
+      Plug.Test.conn(:get, "http://localhost/large-body?size=500")
+      |> Relayixir.Router.call(Relayixir.Router.init([]))
+
+    assert conn.status == 200
+    assert byte_size(conn.resp_body) == 500
+  end
+
+  test "no size limit when max_response_body_size is nil", %{port: port} do
+    UpstreamConfig.put_upstreams(%{
+      "test_backend" => %{
+        scheme: :http,
+        host: "127.0.0.1",
+        port: port,
+        max_response_body_size: nil
+      }
+    })
+
+    conn =
+      Plug.Test.conn(:get, "http://localhost/large-body?size=50000")
+      |> Relayixir.Router.call(Relayixir.Router.init([]))
+
+    assert conn.status == 200
+    assert byte_size(conn.resp_body) == 50_000
+  end
+
   test "proxies chunked response" do
     conn =
       Plug.Test.conn(:get, "http://localhost/chunked")
