@@ -106,7 +106,7 @@ defmodule Relayixir.Proxy.HttpPlug do
         end
 
       {:error, reason} ->
-        {:error, nil, reason}
+        {:error, mint_conn, reason}
     end
   end
 
@@ -149,7 +149,15 @@ defmodule Relayixir.Proxy.HttpPlug do
 
   defp checkout_or_connect(%Upstream{pool_size: pool_size} = upstream)
        when is_integer(pool_size) and pool_size > 0 do
-    ConnPool.ensure_started(upstream)
+    case ConnPool.ensure_started(upstream) do
+      {:ok, _pid} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "ConnPool.ensure_started failed: #{inspect(reason)}, falling back to fresh connection"
+        )
+    end
 
     case ConnPool.checkout(upstream) do
       {:ok, conn} ->
@@ -341,7 +349,9 @@ defmodule Relayixir.Proxy.HttpPlug do
       hook_fn -> hook_fn.(request, response)
     end
   rescue
-    _ -> :ok
+    error ->
+      Logger.warning("on_request_complete hook raised: #{inspect(error)}")
+      :ok
   end
 
   defp map_error(:upstream_timeout), do: :upstream_timeout

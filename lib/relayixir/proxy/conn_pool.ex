@@ -62,8 +62,15 @@ defmodule Relayixir.Proxy.ConnPool do
     key = pool_key(upstream)
 
     case Registry.lookup(Relayixir.Proxy.ConnPool.Registry, key) do
-      [{pid, _}] -> GenServer.cast(pid, {:checkin, conn})
-      [] -> Mint.HTTP.close(conn)
+      [{pid, _}] ->
+        if Process.alive?(pid) do
+          GenServer.cast(pid, {:checkin, conn})
+        else
+          Mint.HTTP.close(conn)
+        end
+
+      [] ->
+        Mint.HTTP.close(conn)
     end
 
     :ok
@@ -151,7 +158,8 @@ defmodule Relayixir.Proxy.ConnPool do
   end
 
   @impl true
-  def handle_info(_msg, state) do
+  def handle_info(msg, state) do
+    Logger.debug("ConnPool #{inspect(state.key)} received unexpected message: #{inspect(msg)}")
     {:noreply, state}
   end
 
