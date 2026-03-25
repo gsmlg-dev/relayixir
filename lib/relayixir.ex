@@ -44,7 +44,13 @@ defmodule Relayixir do
     if upstreams = config[:upstreams], do: UpstreamConfig.put_upstreams(upstreams)
 
     if hooks = config[:hooks] do
-      HookConfig.put_on_request_complete(hooks[:on_request_complete])
+      if Keyword.has_key?(hooks, :on_request_complete) do
+        HookConfig.put_on_request_complete(hooks[:on_request_complete])
+      end
+
+      if Keyword.has_key?(hooks, :on_ws_frame) do
+        HookConfig.put_on_ws_frame(hooks[:on_ws_frame])
+      end
     end
 
     :ok

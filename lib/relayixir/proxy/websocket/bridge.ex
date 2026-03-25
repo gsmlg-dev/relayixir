@@ -11,6 +11,7 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
 
   alias Relayixir.Proxy.WebSocket.{UpstreamClient, Frame, Close}
   alias Relayixir.Proxy.Upstream
+  alias Relayixir.Config.HookConfig
 
   defstruct [
     :session_id,
@@ -186,6 +187,8 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
       %{system_time: System.system_time()},
       %{session_id: state.session_id, type: frame.type}
     )
+
+    invoke_ws_hook(state.session_id, :outbound, frame)
 
     case send_to_upstream(state, frame) do
       {:ok, new_state} ->
@@ -375,6 +378,7 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
       %{session_id: state.session_id, type: frame.type}
     )
 
+    invoke_ws_hook(state.session_id, :inbound, frame)
     send_to_downstream(state, frame)
     handle_upstream_frames(rest, state)
   end
@@ -421,5 +425,16 @@ defmodule Relayixir.Proxy.WebSocket.Bridge do
 
   defp via_registry(session_id) do
     {:via, Registry, {Relayixir.Proxy.WebSocket.BridgeRegistry, session_id}}
+  end
+
+  defp invoke_ws_hook(session_id, direction, frame) do
+    case HookConfig.get_on_ws_frame() do
+      nil -> :ok
+      hook_fn -> hook_fn.(session_id, direction, frame)
+    end
+  rescue
+    error ->
+      Logger.warning("on_ws_frame hook raised: #{inspect(error)}")
+      :ok
   end
 end

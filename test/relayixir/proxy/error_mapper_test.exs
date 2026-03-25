@@ -20,6 +20,14 @@ defmodule Relayixir.Proxy.ErrorMapperTest do
       assert ErrorMapper.to_response(:upstream_invalid_response) == {502, "Bad Gateway"}
     end
 
+    test "response_too_large returns 502" do
+      assert ErrorMapper.to_response(:response_too_large) == {502, "Bad Gateway"}
+    end
+
+    test "method_not_allowed returns 405" do
+      assert ErrorMapper.to_response(:method_not_allowed) == {405, "Method Not Allowed"}
+    end
+
     test "internal_error returns 500" do
       assert ErrorMapper.to_response(:internal_error) == {500, "Internal Server Error"}
     end
