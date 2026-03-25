@@ -18,6 +18,11 @@ defmodule Relayixir.Application do
     ]
 
     opts = [strategy: :one_for_one, name: Relayixir.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    with {:ok, sup} <- Supervisor.start_link(children, opts) do
+      # Auto-load routes and upstreams from application config if present.
+      Relayixir.reload()
+      {:ok, sup}
+    end
   end
 end
