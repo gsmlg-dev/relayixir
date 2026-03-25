@@ -8,6 +8,7 @@ defmodule Relayixir.Proxy.ErrorMapper do
   """
   @spec to_response(atom()) :: {non_neg_integer(), String.t()}
   def to_response(:route_not_found), do: {404, "Not Found"}
+  def to_response(:method_not_allowed), do: {405, "Method Not Allowed"}
   def to_response(:upstream_connect_failed), do: {502, "Bad Gateway"}
   def to_response(:upstream_timeout), do: {504, "Gateway Timeout"}
   def to_response(:upstream_invalid_response), do: {502, "Bad Gateway"}

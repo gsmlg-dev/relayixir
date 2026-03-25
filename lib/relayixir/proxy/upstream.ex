@@ -13,6 +13,8 @@ defmodule Relayixir.Proxy.Upstream do
           first_byte_timeout: non_neg_integer(),
           websocket?: boolean(),
           host_forward_mode: :preserve | :rewrite_to_upstream | :route_defined,
+          allowed_methods: [String.t()] | nil,
+          inject_request_headers: [{String.t(), String.t()}],
           metadata: map()
         }
 
@@ -30,6 +32,8 @@ defmodule Relayixir.Proxy.Upstream do
     first_byte_timeout: @default_first_byte_timeout,
     websocket?: false,
     host_forward_mode: :preserve,
+    allowed_methods: nil,
+    inject_request_headers: [],
     metadata: %{}
   ]
 
@@ -71,6 +75,8 @@ defmodule Relayixir.Proxy.Upstream do
         get_timeout(route, config, :first_byte_timeout, @default_first_byte_timeout),
       websocket?: Map.get(route, :websocket, false),
       host_forward_mode: Map.get(route, :host_forward_mode, :preserve),
+      allowed_methods: Map.get(route, :allowed_methods),
+      inject_request_headers: Map.get(route, :inject_request_headers, []),
       metadata: Map.get(config, :metadata, %{})
     }
   end

@@ -14,18 +14,31 @@ defmodule Relayixir.Router do
 
   match _ do
     case Upstream.resolve(conn) do
-      {:ok, %Upstream{websocket?: true} = upstream} ->
-        if websocket_upgrade?(conn) do
-          Relayixir.Proxy.WebSocket.Plug.call(conn, upstream)
-        else
-          HttpPlug.call(conn, upstream)
-        end
-
       {:ok, upstream} ->
-        HttpPlug.call(conn, upstream)
+        case check_policy(conn, upstream) do
+          :ok ->
+            if upstream.websocket? && websocket_upgrade?(conn) do
+              Relayixir.Proxy.WebSocket.Plug.call(conn, upstream)
+            else
+              HttpPlug.call(conn, upstream)
+            end
+
+          {:error, reason} ->
+            ErrorMapper.send_error(conn, reason)
+        end
 
       {:error, :route_not_found} ->
         ErrorMapper.send_error(conn, :route_not_found)
+    end
+  end
+
+  defp check_policy(conn, upstream) do
+    case upstream.allowed_methods do
+      nil ->
+        :ok
+
+      methods ->
+        if String.upcase(conn.method) in methods, do: :ok, else: {:error, :method_not_allowed}
     end
   end
 
