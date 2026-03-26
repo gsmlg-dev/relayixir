@@ -9,7 +9,7 @@ Relayixir is an Elixir-native HTTP/WebSocket reverse proxy built on Bandit + Plu
 ## Project Status
 
 Phase 1 (HTTP MVP) and Phase 2 (WebSocket) are complete. Next up:
-- Phase 3: Production hardening (streaming request bodies, connection reuse, buffering)
+- Phase 3: Production hardening (streaming request bodies, bounded buffering)
 - Phase 4: Inspection and policy extensions
 
 Design document: `docs/design.md`
@@ -34,7 +34,7 @@ mix format --check-formatted       # Check formatting
 ```
 Client → Bandit → Router → HttpPlug → HttpClient (Mint) → Upstream
 ```
-The streaming loop lives inside HttpPlug. HttpClient yields response parts (status, headers, data chunks, done) and HttpPlug writes them to Plug.Conn.
+The streaming loop lives inside HttpPlug. HttpClient yields response parts (status, headers, data chunks, done) and HttpPlug writes them to Plug.Conn. Optional connection pooling via `ConnPool` when `pool_size` is set on an upstream.
 
 **WebSocket path** (stateful, long-lived, bidirectional):
 ```
@@ -48,23 +48,27 @@ Bridge is a supervised GenServer under DynamicSupervisor with `:temporary` resta
 Relayixir.Application (one_for_one)
 ├── Config.RouteConfig (Agent)
 ├── Config.UpstreamConfig (Agent)
+├── Config.HookConfig (Agent)
 ├── Telemetry.Events (GenServer)
 ├── DynamicSupervisor (BridgeSupervisor) — WebSocket Bridge instances
 ├── Registry (BridgeRegistry) — bridge process discovery
+├── DynamicSupervisor (ConnPool.Supervisor) — per-upstream connection pools
+├── Registry (ConnPool.Registry) — pool process discovery
 └── Bandit (port 4000, plug: Router)
 ```
 
 ### Configuration System
 
-Routes and upstreams are stored in Agent-based config (memory-only in MVP):
-- `Config.RouteConfig`: host_match + path_prefix → upstream_name, with websocket?, host_forward_mode, timeouts
-- `Config.UpstreamConfig`: upstream_name → scheme, host, port, path_prefix_rewrite, timeouts
+Routes and upstreams are stored in Agent-based config (memory-only), loaded via `Relayixir.load/1` or `Relayixir.reload/0`:
+- `Config.RouteConfig`: host_match + path_prefix → upstream_name, with websocket?, host_forward_mode, allowed_methods, inject_request_headers, timeouts
+- `Config.UpstreamConfig`: upstream_name → scheme, host, port, path_prefix_rewrite, pool_size, max_response/request_body_size, timeouts
+- `Config.HookConfig`: optional `on_request_complete` and `on_ws_frame` callbacks
 - `Proxy.Upstream.resolve(conn)`: merges route + upstream config into an Upstream descriptor struct
 
 ### Key Design Decisions
 - Inbound (Bandit/Plug) and outbound (Mint) responsibilities are strictly separated
-- One Mint connection per request (no pooling in MVP)
-- Request bodies are fully buffered (no streaming in MVP)
+- One Mint connection per request by default; optional pooling via `pool_size` per upstream
+- Request bodies are fully buffered with configurable `max_request_body_size`
 - After HTTP 101 upgrade, upstream failure communicates via close frame (1014), not HTTP error
 - Every `Plug.Conn.chunk/2` must be checked for `{:error, :closed}` (downstream disconnect)
 - Select `send_resp` for Content-Length responses, `send_chunked` for chunked/close-delimited
@@ -73,10 +77,18 @@ Routes and upstreams are stored in Agent-based config (memory-only in MVP):
 - Strip hop-by-hop headers (connection, keep-alive, transfer-encoding, upgrade, etc.)
 - Set/append x-forwarded-for, x-forwarded-proto, x-forwarded-host
 - Host forwarding mode per-route: `:preserve | :rewrite_to_upstream | :route_defined`
-- Strip `Expect: 100-continue` and `permessage-deflate` in MVP
+- Strip `Expect: 100-continue` and `permessage-deflate`
 
 ### Error Mapping
-Centralized in ErrorMapper: route_not_found→404, upstream_connect_failed→502, upstream_timeout→504, upstream_invalid_response→502, internal_error→500. Post-upgrade WebSocket errors use close frames only (1014 bad gateway, 1011 internal error).
+Centralized in ErrorMapper: route_not_found→404, upstream_connect_failed→502, upstream_timeout→504, upstream_invalid_response→502, response_too_large→502, request_too_large→413, internal_error→500. Post-upgrade WebSocket errors use close frames only (1014 bad gateway, 1011 internal error).
+
+### Test Patterns
+Tests use real Bandit servers started on port 0. Test upstreams in `test/support/`: `TestUpstream` (HTTP), `TestWsUpstream` (WebSocket), `TestWsSubprotocolUpstream`. Setup pattern:
+```elixir
+{:ok, pid} = Bandit.start_link(plug: TestUpstream, port: 0)
+{:ok, {_ip, port}} = ThousandIsland.listener_info(pid)
+```
+Requests built via `Plug.Test.conn/3` and dispatched through `Router.call/2`.
 
 ## Git Commits
 
